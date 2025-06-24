@@ -15,6 +15,19 @@ import java.util.concurrent.CompletableFuture;
 @RequestMapping("/locations/{locationId}/scan")
 public class LocationScanController {
 
+    // Consider adding a @ControllerAdvice for more global exception handling
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Void> handleIllegalStateException(IllegalStateException ex) {
+        logger.warn("Handling IllegalStateException: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).build();
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Void> handleIllegalArgumentException(IllegalArgumentException ex) {
+        logger.warn("Handling IllegalArgumentException: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+    }
+
     private static final Logger logger = LoggerFactory.getLogger(LocationScanController.class);
 
     private final LocationScanManagementService locationScanManagementService;
@@ -28,35 +41,18 @@ public class LocationScanController {
      * This operation can be long-running, so it's made asynchronous.
      * It returns immediately with 202 Accepted.
      */
-    @Async // Make the controller method asynchronous
+    @Async // Spring manages the CompletableFuture execution
     @PostMapping
     public CompletableFuture<ResponseEntity<Void>> startLocationScan(
             @PathVariable Long locationId,
             @RequestParam(defaultValue = "false") boolean calculateHash) {
-
-        return CompletableFuture.runAsync(() -> {
-            try {
-                logger.info("Controller received request to scan location ID: {}, calculateHash: {}", locationId, calculateHash);
-                locationScanManagementService.startScan(locationId, calculateHash);
-                // If startScan completes without throwing an exception handled by itself, it means it was accepted.
-                // The actual scan runs in the background.
-            } catch (ResponseStatusException rse) {
-                // Re-throw to be handled by Spring's exception handling, converting to appropriate HTTP response
-                throw rse;
-            } catch (Exception e) {
-                logger.error("Unexpected error during startScan call for location ID {}: {}", locationId, e.getMessage(), e);
-                // For unhandled exceptions from the service call (that weren't ResponseStatusException)
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to start scan: " + e.getMessage(), e);
-            }
-        }).thenApply(voidResult -> ResponseEntity.accepted().<Void>build()) // Explicitly type the response
-          .exceptionally(ex -> {
-              if (ex.getCause() instanceof ResponseStatusException) {
-                  ResponseStatusException rse = (ResponseStatusException) ex.getCause();
-                  return ResponseEntity.status(rse.getStatusCode()).<Void>build(); // Explicitly type the response
-              }
-              logger.error("Async scan initiation failed for location ID {}: {}", locationId, ex.getMessage(), ex);
-              return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build(); // Explicitly type the response
-          });
+        logger.info("Controller received async request to scan location ID: {}, calculateHash: {}", locationId, calculateHash);
+        // The @Async annotation ensures this method's execution happens in a separate thread.
+        // Exceptions thrown by locationScanManagementService.startScan will cause the
+        // CompletableFuture to complete exceptionally. These will be handled by the @ExceptionHandler methods.
+        locationScanManagementService.startScan(locationId, calculateHash);
+        // If startScan completes without throwing, it implies the task was accepted for async execution.
+        return CompletableFuture.completedFuture(ResponseEntity.accepted().build());
     }
 
 

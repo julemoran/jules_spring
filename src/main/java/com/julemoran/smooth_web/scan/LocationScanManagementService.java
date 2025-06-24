@@ -2,15 +2,23 @@ package com.julemoran.smooth_web.scan;
 
 import com.julemoran.smooth_web.location.Location;
 import com.julemoran.smooth_web.location.LocationRepository;
+import com.julemoran.smooth_web.scan.hashing.FileHasher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
-import java.util.Optional;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 @Service
 public class LocationScanManagementService {
@@ -18,121 +26,134 @@ public class LocationScanManagementService {
     private static final Logger logger = LoggerFactory.getLogger(LocationScanManagementService.class);
 
     private final LocationRepository locationRepository;
-    private final FileScannerService fileScannerService;
-    private final LocationScanStatusRepository locationScanStatusRepository;
+    private final ScanStateManager scanStateManager;
+    private final FileHasher fileHasher; // Needed to create FileScanTask
+    private final ExecutorService scanExecutor; // For running scan tasks asynchronously
+    private final ConcurrentHashMap<Long, Future<ScanResult>> activeScanFutures = new ConcurrentHashMap<>();
 
+    @Autowired
     public LocationScanManagementService(LocationRepository locationRepository,
-                                         FileScannerService fileScannerService,
-                                         LocationScanStatusRepository locationScanStatusRepository) {
+                                         ScanStateManager scanStateManager,
+                                         @Qualifier("javaSha256Hasher") FileHasher fileHasher) {
         this.locationRepository = locationRepository;
-        this.fileScannerService = fileScannerService;
-        this.locationScanStatusRepository = locationScanStatusRepository;
+        this.scanStateManager = scanStateManager;
+        this.fileHasher = fileHasher;
+        // Using a cached thread pool, but a fixed-size pool might be better for production
+        this.scanExecutor = Executors.newCachedThreadPool();
     }
 
-    /**
-     * Initiates a scan for the given location ID.
-     * This method runs asynchronously due to FileScannerService's async nature for hashing
-     * and the overall potentially long-running scan process.
-     * The method itself returns quickly after submitting the scan task.
-     *
-     * @param locationId The ID of the location to scan.
-     * @param calculateHash Whether to calculate SHA256 hashes for files.
-     */
-    @Transactional // Manages the transaction for fetching location and initial status check/update
     public void startScan(Long locationId, boolean calculateHash) {
         Location location = locationRepository.findById(locationId)
-                .orElseThrow(() -> {
-                    logger.warn("Attempted to start scan for non-existent location ID: {}", locationId);
-                    return new ResponseStatusException(HttpStatus.NOT_FOUND, "Location not found with ID: " + locationId);
-                });
+                .orElseThrow(() -> new IllegalArgumentException("Location not found with ID: " + locationId));
 
-        logger.info("Request received to scan location: {} (ID: {}), calculateHash: {}", location.getName(), locationId, calculateHash);
+        logger.info("Attempting to start scan for location: {} (ID: {}), calculateHash: {}", location.getName(), locationId, calculateHash);
 
-        LocationScanStatus status = locationScanStatusRepository.findByLocation(location)
-                .orElseGet(() -> {
-                    LocationScanStatus newStatus = new LocationScanStatus(location, ScanStatus.IDLE);
-                    // Persist immediately if it's new, so FileScannerService can update it
-                    return locationScanStatusRepository.save(newStatus);
-                });
-
-
-        if (status.getStatus() == ScanStatus.RUNNING || status.getStatus() == ScanStatus.ABORTING) {
-            logger.warn("Scan for location '{}' (ID: {}) is already {} or {}. New scan request ignored.",
-                    location.getName(), locationId, status.getStatus(), ScanStatus.ABORTING);
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Scan for location " + location.getName() + " is already " + status.getStatus());
+        if (!scanStateManager.canStartScan(locationId)) {
+            // This check includes if a scan is already active OR if an abort has been requested but not yet finalized.
+            throw new IllegalStateException("Scan for location " + location.getName() + " cannot be started. It might be already in progress, or an abort is being processed.");
         }
 
-        // The actual scanning (potentially long-running) is then delegated.
-        // FileScannerService.scanLocation handles its own transaction for the scan itself.
-        // We are not directly calling an @Async method here, but FileScannerService.scanLocation
-        // uses @Async internally for hashing. The scan itself is blocking within its own thread.
-        // To make this truly non-blocking for the caller of startScan, FileScannerService.scanLocation
-        // would need to be @Async or called via an ExecutorService.
-        // For now, this method will block until scanLocation completes.
-        // Let's adjust this to make startScan itself asynchronous.
-        // This requires FileScannerService.scanLocation to be public and ideally on a different bean
-        // or configured for self-invocation if it were @Async itself.
-        // Since FileScannerService.scanLocation is already public and on a different bean,
-        // we can make this method @Async or call it via an executor.
-        // For simplicity, we'll rely on the fact that the *controller* calling this might be async,
-        // or that a separate thread calls this.
-        // The actual file iteration and hashing inside FileScannerService is the long part.
+        // Record scan as IN_PROGRESS. The actual task start time will be in ScanResult.
+        // This time is more of "submission time".
+        scanStateManager.recordScanInProgress(locationId, LocalDateTime.now());
 
-        // Resetting status to IDLE here if it was FAILED or ABORTED to allow re-scan.
-        // If it was COMPLETED, it will also be reset to allow re-scan.
-        status.setStatus(ScanStatus.IDLE); // Set to IDLE before scanLocation attempts to set to RUNNING
-        status.setLastScanStartTime(null);
-        status.setLastScanEndTime(null);
-        locationScanStatusRepository.save(status);
+        IScanTask scanTask = new FileScanTask(location, calculateHash, fileHasher);
 
-        // Delegate to FileScannerService. This call will manage its own transaction.
-        // Note: if scanLocation were @Async, this would be a fire-and-forget call.
-        // As it is now, it's a synchronous call within this transaction.
-        // The @Async for hashing is internal to scanLocation.
-        try {
-             // This call is synchronous at this level. The async part is the hashing within scanLocation.
-            fileScannerService.scanLocation(location, calculateHash);
-        } catch (Exception e) {
-            logger.error("Exception propagated from fileScannerService.scanLocation for location ID {}: {}", locationId, e.getMessage(), e);
-            // Ensure status is FAILED if an unexpected error escapes scanLocation
-            LocationScanStatus errorStatus = locationScanStatusRepository.findByLocationId(locationId)
-                .orElseThrow(() -> new IllegalStateException("Scan status not found after error for location " + locationId));
-            if (errorStatus.getStatus() != ScanStatus.ABORTED) { // Don't override ABORTED
-                 errorStatus.setStatus(ScanStatus.FAILED);
-                 errorStatus.setLastScanEndTime(LocalDateTime.now());
-                 locationScanStatusRepository.save(errorStatus);
+        // scanTask::runScan is a Callable<ScanResult>
+        Future<ScanResult> futureResult = scanExecutor.submit(scanTask::runScan);
+        activeScanFutures.put(locationId, futureResult);
+
+        // Use CompletableFuture to handle the result asynchronously without blocking the main thread
+        // that called startScan. This separate task will wait for futureResult.
+        CompletableFuture.runAsync(() -> {
+            ScanResult scanResult = null;
+            try {
+                // Wait for the scan task to complete.
+                // This blocks the thread managed by CompletableFuture.runAsync, not the caller of startScan.
+                scanResult = futureResult.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Scan task future.get() was interrupted for location ID: {}. Likely due to abort.", locationId, e);
+                // If interrupted, it's highly likely an abort was requested.
+                // The scanTask itself should ideally produce an ABORTED ScanResult.
+                // If scanResult is null here, it means future.get() was interrupted before result was set.
+                if (scanStateManager.isAbortRequested(locationId)) {
+                     scanStateManager.recordScanAborted(locationId, null, LocalDateTime.now());
+                } else {
+                    scanStateManager.recordScanFailed(locationId, null, LocalDateTime.now());
+                }
+            } catch (java.util.concurrent.ExecutionException e) {
+                logger.error("Scan task execution failed for location ID: {}", locationId, e.getCause());
+                // The task itself should return a FAILED ScanResult. This path handles underlying execution issues.
+                 scanStateManager.recordScanFailed(locationId, null, LocalDateTime.now());
+            } catch (java.util.concurrent.CancellationException e) {
+                logger.info("Scan task was cancelled for location ID: {}. Likely due to abort.", locationId);
+                // This happens if future.cancel(true) was called and succeeded.
+                // The scanTask itself should ideally produce an ABORTED ScanResult.
+                // If scanResult is null here, it means future.get() was interrupted before result was set.
+                scanStateManager.recordScanAborted(locationId, null, LocalDateTime.now());
+            } finally {
+                activeScanFutures.remove(locationId);
+                LocalDateTime endTime = LocalDateTime.now(); // Use this as a fallback if scanResult.endTime is not available
+
+                if (scanResult != null) {
+                    switch (scanResult.finalStatus()) {
+                        case COMPLETED:
+                            scanStateManager.recordScanCompleted(locationId, scanResult.startTime(), scanResult.endTime(), scanResult.discoveredFiles());
+                            break;
+                        case FAILED:
+                            scanStateManager.recordScanFailed(locationId, scanResult.startTime(), scanResult.endTime());
+                            break;
+                        case ABORTED:
+                            scanStateManager.recordScanAborted(locationId, scanResult.startTime(), scanResult.endTime());
+                            break;
+                        default: // Should not happen
+                            logger.error("Scan for location ID {} ended with unexpected ScanResult status: {}. Marking as FAILED.", locationId, scanResult.finalStatus());
+                            scanStateManager.recordScanFailed(locationId, scanResult.startTime(), scanResult.endTime() != null ? scanResult.endTime() : endTime);
+                            break;
+                    }
+                } else {
+                    // If scanResult is null, it means future.get() didn't complete normally.
+                    // The specific catch blocks (InterruptedException, ExecutionException, CancellationException)
+                    // should have already updated the status. This is a fallback/double-check.
+                    // However, if it reaches here and status wasn't set, it's an issue.
+                    // Re-check abort status as a priority.
+                    if (scanStateManager.isAbortRequested(locationId) && scanStateManager.getPersistedScanStatus(locationId).getStatus() != ScanStatus.ABORTED) {
+                         logger.warn("ScanResult was null for location {}, and abort was requested. Ensuring status is ABORTED.", locationId);
+                         scanStateManager.recordScanAborted(locationId, null, endTime);
+                    } else if (scanStateManager.getPersistedScanStatus(locationId).getStatus() == ScanStatus.RUNNING) {
+                        // If still RUNNING, it means something went wrong and no specific exception handled it.
+                        logger.error("Scan task for location ID {} had null result and no specific exception caught to update status from RUNNING. Marking as FAILED.", locationId);
+                        scanStateManager.recordScanFailed(locationId, null, endTime);
+                    }
+                }
             }
-            // Re-throw or handle as per API contract
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Scan failed: " + e.getMessage(), e);
+        }, scanExecutor); // You can use the same executor or a different one for these handlers
+    }
+
+    public void abortScan(Long locationId) {
+        if (!locationRepository.existsById(locationId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Location not found with ID: " + locationId);
         }
+        logger.info("Request received to abort scan for location ID: {}", locationId);
+
+        // Signal ScanStateManager first to update in-memory state and potentially DB to ABORTING
+        scanStateManager.requestAbort(locationId);
+
+        // Then, attempt to cancel the future task if it's still running
+        Future<ScanResult> future = activeScanFutures.get(locationId);
+        if (future != null && !future.isDone()) {
+            boolean cancelled = future.cancel(true); // Attempt to interrupt the thread
+            logger.info("Attempt to cancel scan future for location ID {}: {}", locationId, cancelled ? "successful" : "failed or already done");
+        } else {
+            logger.info("No active scan future found for location ID {} to cancel, or it was already done.", locationId);
+        }
+        // The IScanTask itself (if accessible) would also have its requestAbort() called by ScanStateManager
+        // or directly here if we stored IScanTask instances. The current ScanStateManager.requestAbort handles the flag.
     }
 
     @Transactional
-    public void abortScan(Long locationId) {
-        Location location = locationRepository.findById(locationId)
-                .orElseThrow(() -> {
-                    logger.warn("Attempted to abort scan for non-existent location ID: {}", locationId);
-                    return new ResponseStatusException(HttpStatus.NOT_FOUND, "Location not found with ID: " + locationId);
-                });
-
-        logger.info("Request received to abort scan for location: {} (ID: {})", location.getName(), locationId);
-        fileScannerService.requestAbortScan(locationId);
-    }
-
-    @Transactional // Changed to read-write to allow creation of status if not present
-    public LocationScanStatus getScanStatus(Long locationId) { // Return type changed to non-Optional
-        Location location = locationRepository.findById(locationId)
-                .orElseThrow(() -> {
-                    logger.warn("Attempted to get scan status for non-existent location ID: {}", locationId);
-                    return new ResponseStatusException(HttpStatus.NOT_FOUND, "Location not found with ID: " + locationId);
-                });
-
-        return locationScanStatusRepository.findByLocation(location)
-                .orElseGet(() -> {
-                    logger.info("No scan status found for location ID: {}. Creating a default IDLE status.", locationId);
-                    LocationScanStatus newStatus = new LocationScanStatus(location, ScanStatus.IDLE);
-                    return locationScanStatusRepository.save(newStatus);
-                });
+    public LocationScanStatus getScanStatus(Long locationId) {
+        return scanStateManager.getPersistedScanStatus(locationId);
     }
 }

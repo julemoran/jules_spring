@@ -52,43 +52,45 @@ public class LocationController {
         return ResponseEntity.ok(locations);
     }
 
-    @GetMapping("/{id}") // Changed from {name} to {id}
-    public ResponseEntity<LocationDto> getLocationById(@PathVariable Long id) { // Parameter changed to Long id
-        Optional<Location> location = locationRepository.findById(id); // Use findById
-        return location.map(value -> ResponseEntity.ok(convertToDto(value)))
+    @GetMapping("/{id}")
+    public ResponseEntity<LocationDto> getLocationById(@PathVariable Long id) {
+        return locationRepository.findById(id)
+                .map(location -> ResponseEntity.ok(convertToDto(location)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    @PutMapping("/{id}") // Changed from {name} to {id}
-    public ResponseEntity<LocationDto> updateLocation(@PathVariable Long id, @RequestBody LocationDto locationDto) { // Parameter changed to Long id
-        Optional<Location> existingLocationOptional = locationRepository.findById(id); // Use findById
+    @PutMapping("/{id}")
+    public ResponseEntity<LocationDto> updateLocationById(@PathVariable Long id, @RequestBody LocationDto locationDto) {
+        Optional<Location> existingLocationOptional = locationRepository.findById(id);
         if (existingLocationOptional.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
         Location existingLocation = existingLocationOptional.get();
 
-        // Check if the new name in DTO conflicts with another existing location (if name is changed)
-        // And the conflicting location is not the current one being updated
+        // Check for name conflict only if the name is being changed
         if (!existingLocation.getName().equals(locationDto.getName())) {
             Optional<Location> conflictingLocation = locationRepository.findByName(locationDto.getName());
+            // If a location with the new name exists, and it's not the same location we are updating
             if (conflictingLocation.isPresent() && !conflictingLocation.get().getId().equals(id)) {
-                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Another location with name '" + locationDto.getName() + "' already exists.");
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Another location with name '" + locationDto.getName() + "' already exists.");
             }
         }
 
         existingLocation.setName(locationDto.getName());
         existingLocation.setPhysicalPath(locationDto.getPhysicalPath());
+        // ID should not be changed from DTO for an update operation on a specific ID path
+        // The ID from the path variable is authoritative for which entity to update.
 
         Location updatedLocation = locationRepository.save(existingLocation);
         return ResponseEntity.ok(convertToDto(updatedLocation));
     }
 
-    @DeleteMapping("/{id}") // Changed from {name} to {id}
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public ResponseEntity<Void> deleteLocationById(@PathVariable Long id) { // Parameter changed to Long id
-        if (locationRepository.existsById(id)) { // Check if location exists
-            locationRepository.deleteById(id); // Use deleteById
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteLocationById(@PathVariable Long id) {
+        if (locationRepository.existsById(id)) {
+            locationRepository.deleteById(id);
             return ResponseEntity.noContent().build();
         } else {
             return ResponseEntity.notFound().build();

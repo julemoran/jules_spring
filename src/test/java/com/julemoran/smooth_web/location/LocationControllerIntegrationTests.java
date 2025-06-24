@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser; // Added import
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -25,6 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Transactional // Rollback transactions after each test
+// Apply mock user at class level. Specific tests can override if needed (e.g. for anonymous or non-admin user)
+@WithMockUser(roles = {"admin"})
 public class LocationControllerIntegrationTests {
 
     @Autowired
@@ -34,6 +37,12 @@ public class LocationControllerIntegrationTests {
     private LocationRepository locationRepository;
 
     @Autowired
+    private com.julemoran.smooth_web.scan.ScannedFileRepository scannedFileRepository; // Added
+
+    @Autowired
+    private com.julemoran.smooth_web.scan.LocationScanStatusRepository locationScanStatusRepository; // Added
+
+    @Autowired
     private ObjectMapper objectMapper;
 
     private Location location1;
@@ -41,6 +50,9 @@ public class LocationControllerIntegrationTests {
 
     @BeforeEach
     void setUp() {
+        // Clean up database before each test, in correct order
+        scannedFileRepository.deleteAll();
+        locationScanStatusRepository.deleteAll();
         locationRepository.deleteAll(); // Clean slate
 
         location1 = new Location(null, "TestLocation1", "/tmp/path1");
