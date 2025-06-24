@@ -21,11 +21,14 @@ jobs:
         distribution: 'temurin'
         cache: maven
 
-    - name: Test with Maven
-      run: mvn -B test --file pom.xml
+    - name: Build and Test with Maven (includes JaCoCo report)
+      run: mvn -B clean verify --file pom.xml
 
-    - name: Build with Maven
-      run: mvn -B package --file pom.xml
+    # The 'package' goal is part of 'verify', so an explicit package step is not strictly needed
+    # if 'verify' successfully creates the package. However, keeping it doesn't harm.
+    # If 'verify' handles packaging, this step could be removed or kept for explicitness.
+    # For now, let's assume 'verify' handles the packaging as per standard Maven lifecycle.
+    # If issues arise, we might need to re-add a separate 'mvn -B package' if 'verify' doesn't produce the JAR.
 
     - name: Upload JAR artifact
       uses: actions/upload-artifact@v4
@@ -34,3 +37,41 @@ jobs:
         path: target/*.jar
         if-no-files-found: error # Fail the workflow if no JAR is found
         retention-days: 7 # Keep artifacts for 7 days
+
+    - name: Upload JaCoCo report artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: jacoco-report
+        path: target/site/jacoco
+        if-no-files-found: error # Fail if the report is not found
+        retention-days: 7
+
+  deploy-report:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to push to gh-pages branch
+      pages: write    # Required to deploy to GitHub Pages
+      id-token: write # Required for OIDC token if using GitHub Pages deployment action's advanced features
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4 # Checks out the default branch
+
+    - name: Download JaCoCo report artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: jacoco-report
+        path: jacoco-report # Download to a specific directory
+
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: jacoco-report # The directory containing the report files
+        publish_branch: gh-pages   # Deploy to the gh-pages branch
+        user_name: 'github-actions[bot]'
+        user_email: 'github-actions[bot]@users.noreply.github.com'
+        commit_message: 'Deploy JaCoCo report to GitHub Pages'
+        # force_orphan: true # Optional: create a new history for the gh-pages branch
+        # keep_files: false # Optional: remove existing files from gh-pages branch before deploying
