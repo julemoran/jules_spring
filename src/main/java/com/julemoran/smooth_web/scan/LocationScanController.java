@@ -52,10 +52,10 @@ public class LocationScanController {
           .exceptionally(ex -> {
               if (ex.getCause() instanceof ResponseStatusException) {
                   ResponseStatusException rse = (ResponseStatusException) ex.getCause();
-                  return ResponseEntity.status(rse.getStatusCode()).build();
+                  return ResponseEntity.status(rse.getStatusCode()).<Void>build(); // Explicitly type the response
               }
               logger.error("Async scan initiation failed for location ID {}: {}", locationId, ex.getMessage(), ex);
-              return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+              return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build(); // Explicitly type the response
           });
     }
 
