@@ -48,7 +48,7 @@ public class LocationScanController {
                 // For unhandled exceptions from the service call (that weren't ResponseStatusException)
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to start scan: " + e.getMessage(), e);
             }
-        }).thenApply(voidResult -> ResponseEntity.accepted().build())
+        }).thenApply(voidResult -> ResponseEntity.accepted().<Void>build()) // Explicitly type the response
           .exceptionally(ex -> {
               if (ex.getCause() instanceof ResponseStatusException) {
                   ResponseStatusException rse = (ResponseStatusException) ex.getCause();
