@@ -116,12 +116,21 @@
 						</configuration>
 					</execution>
 					<execution>
-						<id>npm run build</id>
+						<id>npm run type-check</id>
 						<goals>
 							<goal>npm</goal>
 						</goals>
 						<configuration>
-							<arguments>run build -- --out-dir ../../../target/classes/static</arguments>
+							<arguments>run type-check</arguments>
+						</configuration>
+					</execution>
+					<execution>
+						<id>vite build</id>
+						<goals>
+							<goal>npm</goal>
+						</goals>
+						<configuration>
+							<arguments>exec vite -- build --out-dir ../../../target/classes/static</arguments>
 						</configuration>
 					</execution>
 				</executions>
