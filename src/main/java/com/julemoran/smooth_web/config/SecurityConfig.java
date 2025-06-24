@@ -25,6 +25,7 @@ public class SecurityConfig {
         http
             .authorizeHttpRequests(authorizeRequests ->
                 authorizeRequests
+                    .requestMatchers("/", "/index.html", "/favicon.ico", "/assets/**", "/manifest.json", "/robots.txt").permitAll()
                     .requestMatchers(HttpMethod.GET, "/locations", "/locations/**").permitAll()
                     .requestMatchers(HttpMethod.POST, "/locations").hasRole("admin")
                     .requestMatchers(HttpMethod.PUT, "/locations/**").hasRole("admin")
