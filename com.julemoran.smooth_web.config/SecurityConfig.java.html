@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 <span class="fc" id="L25">        http</span>
 <span class="fc" id="L26">            .authorizeHttpRequests(authorizeRequests -&gt;</span>
                 authorizeRequests
-<span class="fc" id="L28">                    .requestMatchers(&quot;/&quot;, &quot;/index.html&quot;, &quot;/favicon.ico&quot;, &quot;/assets/**&quot;, &quot;/manifest.json&quot;, &quot;/robots.txt&quot;).permitAll()</span>
+<span class="fc" id="L28">                    .requestMatchers(&quot;/&quot;, &quot;/index.html&quot;, &quot;/favicon.ico&quot;, &quot;/assets/**&quot;, &quot;/manifest.json&quot;, &quot;/robots.txt&quot;, &quot;/api/v1/config/oidc&quot;).permitAll()</span>
 <span class="fc" id="L29">                    .requestMatchers(HttpMethod.GET, &quot;/locations&quot;, &quot;/locations/**&quot;).permitAll()</span>
 <span class="fc" id="L30">                    .requestMatchers(HttpMethod.POST, &quot;/locations&quot;).hasRole(&quot;admin&quot;)</span>
 <span class="fc" id="L31">                    .requestMatchers(HttpMethod.PUT, &quot;/locations/**&quot;).hasRole(&quot;admin&quot;)</span>

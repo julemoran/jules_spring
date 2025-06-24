@@ -1,4 +1,6 @@
 GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
-smooth_web,com.julemoran.smooth_web.config,SecurityConfig,31,122,4,0,10,16,4,7,2,7
+smooth_web,com.julemoran.smooth_web.config,OidcConfigController.FrontendOidcConfig,0,15,0,0,0,6,0,1,0,1
+smooth_web,com.julemoran.smooth_web.config,OidcConfigController,16,79,8,4,3,16,6,4,0,4
+smooth_web,com.julemoran.smooth_web.config,SecurityConfig,31,126,4,0,10,16,4,7,2,7
 smooth_web,com.julemoran.smooth_web,SmoothWebApplication,5,3,0,0,2,1,1,1,1,1
 smooth_web,com.julemoran.smooth_web.location,LocationController,0,163,1,9,0,33,1,14,0,10
