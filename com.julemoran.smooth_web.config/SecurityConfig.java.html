@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SecurityConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">smooth_web</a> &gt; <a href="index.source.html" class="el_package">com.julemoran.smooth_web.config</a> &gt; <span class="el_source">SecurityConfig.java</span></div><h1>SecurityConfig.java</h1><pre class="source lang-java linenums">package com.julemoran.smooth_web.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.web.SecurityFilterChain;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Configuration
+@EnableWebSecurity
+<span class="fc" id="L21">public class SecurityConfig {</span>
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+<span class="fc" id="L25">        http</span>
+<span class="fc" id="L26">            .authorizeHttpRequests(authorizeRequests -&gt;</span>
+                authorizeRequests
+<span class="fc" id="L28">                    .requestMatchers(&quot;/&quot;, &quot;/index.html&quot;, &quot;/favicon.ico&quot;, &quot;/assets/**&quot;, &quot;/manifest.json&quot;, &quot;/robots.txt&quot;).permitAll()</span>
+<span class="fc" id="L29">                    .requestMatchers(HttpMethod.GET, &quot;/locations&quot;, &quot;/locations/**&quot;).permitAll()</span>
+<span class="fc" id="L30">                    .requestMatchers(HttpMethod.POST, &quot;/locations&quot;).hasRole(&quot;admin&quot;)</span>
+<span class="fc" id="L31">                    .requestMatchers(HttpMethod.PUT, &quot;/locations/**&quot;).hasRole(&quot;admin&quot;)</span>
+<span class="fc" id="L32">                    .requestMatchers(HttpMethod.DELETE, &quot;/locations/**&quot;).hasRole(&quot;admin&quot;)</span>
+<span class="fc" id="L33">                    .anyRequest().authenticated()</span>
+            )
+<span class="fc" id="L35">            .oauth2ResourceServer(oauth2 -&gt; oauth2.jwt(Customizer.withDefaults())) // For API token validation</span>
+<span class="fc" id="L36">            .csrf(csrf -&gt; csrf.disable()) // Typically disabled for stateless REST APIs</span>
+<span class="fc" id="L37">            .sessionManagement(session -&gt; session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)); // Ensure statelessness</span>
+
+<span class="fc" id="L39">        return http.build();</span>
+    }
+
+    @Bean
+    public JwtAuthenticationConverter jwtAuthenticationConverter() {
+<span class="fc" id="L44">        JwtAuthenticationConverter jwtConverter = new JwtAuthenticationConverter();</span>
+<span class="fc" id="L45">        jwtConverter.setJwtGrantedAuthoritiesConverter(jwt -&gt; {</span>
+<span class="nc" id="L46">            Map&lt;String, Object&gt; realmAccess = jwt.getClaim(&quot;realm_access&quot;);</span>
+<span class="nc bnc" id="L47" title="All 2 branches missed.">            if (realmAccess == null) {</span>
+<span class="nc" id="L48">                return Collections.emptyList();</span>
+            }
+            @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L51">            List&lt;String&gt; roles = (List&lt;String&gt;) realmAccess.get(&quot;roles&quot;);</span>
+<span class="nc bnc" id="L52" title="All 2 branches missed.">            if (roles == null) {</span>
+<span class="nc" id="L53">                return Collections.emptyList();</span>
+            }
+<span class="nc" id="L55">            return roles.stream()</span>
+<span class="nc" id="L56">                    .map(roleName -&gt; &quot;ROLE_&quot; + roleName) // Spring Security prefixes roles with &quot;ROLE_&quot;</span>
+<span class="nc" id="L57">                    .map(SimpleGrantedAuthority::new)</span>
+<span class="nc" id="L58">                    .collect(Collectors.toList());</span>
+        });
+<span class="fc" id="L60">        return jwtConverter;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
