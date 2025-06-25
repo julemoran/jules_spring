@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class LocationDto {
 
+    private Long id; // Added ID field
     private String name;
     private String physicalPath;
 }

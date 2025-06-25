@@ -22,7 +22,7 @@ public class LocationController {
     }
 
     private LocationDto convertToDto(Location location) {
-        return new LocationDto(location.getName(), location.getPhysicalPath());
+        return new LocationDto(location.getId(), location.getName(), location.getPhysicalPath());
     }
 
     private Location convertToEntity(LocationDto locationDto) {
