@@ -22,7 +22,8 @@ public class LocationController {
     }
 
     private LocationDto convertToDto(Location location) {
-        return new LocationDto(location.getName(), location.getPhysicalPath());
+        // Use the constructor that includes the id
+        return new LocationDto(location.getId(), location.getName(), location.getPhysicalPath());
     }
 
     private Location convertToEntity(LocationDto locationDto) {
@@ -51,26 +52,31 @@ public class LocationController {
         return ResponseEntity.ok(locations);
     }
 
-    @GetMapping("/{name}")
-    public ResponseEntity<LocationDto> getLocationByName(@PathVariable String name) {
-        Optional<Location> location = locationRepository.findByName(name);
+    @GetMapping("/{id}") // Changed from {name} to {id}
+    public ResponseEntity<LocationDto> getLocationById(@PathVariable Long id) { // Parameter changed to Long id
+        Optional<Location> location = locationRepository.findById(id); // Use findById
         return location.map(value -> ResponseEntity.ok(convertToDto(value)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    @PutMapping("/{name}")
-    public ResponseEntity<LocationDto> updateLocation(@PathVariable String name, @RequestBody LocationDto locationDto) {
-        Optional<Location> existingLocationOptional = locationRepository.findByName(name);
+    @PutMapping("/{id}") // Changed from {name} to {id}
+    public ResponseEntity<LocationDto> updateLocation(@PathVariable Long id, @RequestBody LocationDto locationDto) { // Parameter changed to Long id
+        Optional<Location> existingLocationOptional = locationRepository.findById(id); // Use findById
         if (existingLocationOptional.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
+        Location existingLocation = existingLocationOptional.get();
+
         // Check if the new name in DTO conflicts with another existing location (if name is changed)
-        if (!name.equals(locationDto.getName()) && locationRepository.findByName(locationDto.getName()).isPresent()) {
-             throw new ResponseStatusException(HttpStatus.CONFLICT, "Another location with name '" + locationDto.getName() + "' already exists.");
+        // And the conflicting location is not the current one being updated
+        if (!existingLocation.getName().equals(locationDto.getName())) {
+            Optional<Location> conflictingLocation = locationRepository.findByName(locationDto.getName());
+            if (conflictingLocation.isPresent() && !conflictingLocation.get().getId().equals(id)) {
+                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Another location with name '" + locationDto.getName() + "' already exists.");
+            }
         }
 
-        Location existingLocation = existingLocationOptional.get();
         existingLocation.setName(locationDto.getName());
         existingLocation.setPhysicalPath(locationDto.getPhysicalPath());
 
@@ -78,17 +84,11 @@ public class LocationController {
         return ResponseEntity.ok(convertToDto(updatedLocation));
     }
 
-    @DeleteMapping("/{name}")
-    @ResponseStatus(HttpStatus.NO_CONTENT) // Return 204 No Content on successful deletion
-    public ResponseEntity<Void> deleteLocationByName(@PathVariable String name) {
-        Optional<Location> location = locationRepository.findByName(name);
-        if (location.isPresent()) {
-            locationRepository.deleteByName(name); // Assuming deleteByName is transactional or handles not found appropriately
-            // It's better if deleteByName returns a count or throws if not found, to be sure.
-            // For now, we'll trust it or rely on the findByName check.
-            // If deleteByName doesn't exist or doesn't behave as expected, use delete(location.get())
-            // For example, if deleteByName is not transactional, it might be better to do:
-            // locationRepository.delete(location.get());
+    @DeleteMapping("/{id}") // Changed from {name} to {id}
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public ResponseEntity<Void> deleteLocationById(@PathVariable Long id) { // Parameter changed to Long id
+        if (locationRepository.existsById(id)) { // Check if location exists
+            locationRepository.deleteById(id); // Use deleteById
             return ResponseEntity.noContent().build();
         } else {
             return ResponseEntity.notFound().build();

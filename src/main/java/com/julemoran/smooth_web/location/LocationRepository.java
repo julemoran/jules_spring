@@ -10,5 +10,5 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
 
     Optional<Location> findByName(String name);
 
-    void deleteByName(String name);
+    // void deleteByName(String name); // Removed as it's no longer used by LocationController
 }
